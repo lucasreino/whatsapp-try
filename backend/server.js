@@ -19,6 +19,17 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+// Security Middleware
+const authMiddleware = (req, res, next) => {
+    const password = req.headers['x-access-password'];
+    if (process.env.ACCESS_PASSWORD && password !== process.env.ACCESS_PASSWORD) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    next();
+};
+
+app.use(authMiddleware);
+
 const waHandler = new WhatsAppHandler(io);
 waHandler.init();
 

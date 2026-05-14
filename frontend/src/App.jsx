@@ -1,65 +1,135 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import axios from 'axios';
-import { MessageSquare, Send, LogOut, CheckCircle, XCircle, RefreshCw, Smartphone } from 'lucide-react';
+import { MessageSquare, Send, LogOut, CheckCircle, XCircle, RefreshCw, Smartphone, Lock } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const socket = io(API_BASE);
 
 function App() {
+  const [password, setPassword] = useState(sessionStorage.getItem('wa_password') || '');
+  const [isAuthenticated, setIsAuthenticated] = useState(!!sessionStorage.getItem('wa_password'));
   const [status, setStatus] = useState('DISCONNECTED');
   const [qr, setQr] = useState(null);
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
+  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const newSocket = io(API_BASE);
+    setSocket(newSocket);
+
     // Initial status fetch
-    axios.get(`${API_BASE}/status`).then(res => {
+    axios.get(`${API_BASE}/status`, {
+        headers: { 'x-access-password': password }
+    }).then(res => {
       setStatus(res.data.status);
       setQr(res.data.qr);
+    }).catch(err => {
+        if (err.response?.status === 401) {
+            handleLogoutSite();
+            setAlert({ type: 'error', text: 'Senha incorreta!' });
+        }
     });
 
-    socket.on('status', (data) => {
+    newSocket.on('status', (data) => {
       setStatus(data.status);
       setQr(data.qr || null);
     });
 
-    return () => socket.off('status');
-  }, []);
+    return () => {
+        newSocket.disconnect();
+        newSocket.off('status');
+    };
+  }, [isAuthenticated]);
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    sessionStorage.setItem('wa_password', password);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogoutSite = () => {
+    sessionStorage.removeItem('wa_password');
+    setIsAuthenticated(false);
+    setPassword('');
+    if (socket) socket.disconnect();
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
     if (!phone || !message) return;
     setLoading(true);
     try {
-      await axios.post(`${API_BASE}/send-message`, { jid: phone, text: message });
+      await axios.post(`${API_BASE}/send-message`, 
+        { jid: phone, text: message },
+        { headers: { 'x-access-password': password } }
+      );
       setAlert({ type: 'success', text: 'Mensagem enviada com sucesso!' });
       setMessage('');
     } catch (err) {
-      setAlert({ type: 'error', text: 'Erro ao enviar: ' + err.response?.data?.error });
+      setAlert({ type: 'error', text: 'Erro ao enviar: ' + (err.response?.data?.error || err.message) });
     }
     setLoading(false);
     setTimeout(() => setAlert(null), 3000);
   };
 
-  const handleLogout = async () => {
-    if (!confirm('Tem certeza que deseja desconectar?')) return;
+  const handleLogoutWA = async () => {
+    if (!confirm('Tem certeza que deseja desconectar o WhatsApp?')) return;
     try {
-      await axios.post(`${API_BASE}/logout`);
+      await axios.post(`${API_BASE}/logout`, {}, {
+          headers: { 'x-access-password': password }
+      });
     } catch (err) {
       console.error(err);
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+        <div className="animate-fade-in" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh', padding: '1rem' }}>
+            <div className="glass-card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center' }}>
+                <Lock size={48} style={{ color: 'var(--primary)', marginBottom: '1.5rem' }} />
+                <h2 style={{ marginBottom: '1rem' }}>Acesso Restrito</h2>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Digite a senha de acesso para gerenciar o WhatsApp.</p>
+                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <input 
+                        type="password" 
+                        placeholder="Senha de Acesso" 
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoFocus
+                    />
+                    <button type="submit" className="btn-primary">
+                        Entrar no Sistema
+                    </button>
+                </form>
+                {alert && alert.type === 'error' && (
+                    <div style={{ marginTop: '1rem', color: '#ef4444', fontSize: '0.875rem' }}>{alert.text}</div>
+                )}
+            </div>
+        </div>
+    );
+  }
+
   return (
     <div className="animate-fade-in">
-      <header style={{ marginBottom: '3rem', textAlign: 'center' }}>
+      <header style={{ marginBottom: '3rem', textAlign: 'center', position: 'relative' }}>
+        <button 
+            onClick={handleLogoutSite} 
+            className="btn-secondary"
+            style={{ position: 'absolute', right: 0, top: 0, padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+        >
+            <LogOut size={16} /> Sair do Painel
+        </button>
         <h1 style={{ fontSize: '2.5rem', fontWeight: '700', marginBottom: '0.5rem' }}>
           WhatsApp <span style={{ color: 'var(--primary)' }}>Try</span>
         </h1>
-        <p style={{ color: 'var(--text-muted)' }}>Gerencie sua conexão de forma simples e elegante</p>
+        <p style={{ color: 'var(--text-muted)' }}>Painel de Controle Seguro</p>
       </header>
 
       <div className="glass-card">
@@ -70,8 +140,8 @@ function App() {
           </div>
           
           {status === 'CONNECTED' && (
-            <button onClick={handleLogout} className="btn-primary" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
-              <LogOut size={18} /> Sair
+            <button onClick={handleLogoutWA} className="btn-primary" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+              <LogOut size={18} /> Desconectar WhatsApp
             </button>
           )}
         </div>
@@ -145,7 +215,7 @@ function App() {
       </div>
 
       <footer style={{ marginTop: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-        &copy; 2026 WhatsApp Try. Desenvolvido com Antigravity.
+        &copy; 2026 WhatsApp Try. Acesso Protegido.
       </footer>
 
       <style dangerouslySetInnerHTML={{ __html: `
@@ -155,6 +225,22 @@ function App() {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
         }
       `}} />
     </div>
