@@ -69,7 +69,10 @@ export class WhatsAppHandler {
         if (this.status !== 'CONNECTED') throw new Error('Not connected');
         // Clean JID if it's just a number
         const formattedJid = jid.includes('@s.whatsapp.net') ? jid : `${jid}@s.whatsapp.net`;
-        return await this.sock.sendMessage(formattedJid, { text });
+        console.log(`[DEBUG] Tentando enviar mensagem para: ${formattedJid}`);
+        const result = await this.sock.sendMessage(formattedJid, { text });
+        console.log(`[DEBUG] Resultado do envio:`, result ? 'Sucesso' : 'Falha');
+        return result;
     }
 
     async logout() {
